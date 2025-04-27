@@ -7,24 +7,27 @@ def build_wide_deep_model(feature_columns, config):
     inputs = {col.name: keras.Input(name=col.name, shape=(), dtype=tf.float32) for col in feature_columns['dense_features']}
     inputs.update({col.name: keras.Input(name=col.name, shape=(), dtype=tf.string) for col in feature_columns['categorical_features']})
 
-    # Wide part: linear model on categorical features
-    wide_inputs = [feature_columns['categorical_feature_layer'](inputs)]
-    wide_output = layers.Dense(1)(tf.concat(wide_inputs, axis=-1))
+    # Wide part
+    wide_output = layers.Dense(1)(feature_columns['categorical_feature_layer'](inputs))
 
-    # Deep part: DNN on embeddings + dense inputs
+    # Deep part
     deep_inputs = []
     for col in feature_columns['categorical_features']:
-        embed = layers.Embedding(input_dim=col.vocabulary_size, output_dim=config['model']['embedding_dim'])(inputs[col.name])
+        input_dim = len(col.vocabulary_list) + 1
+        embed = layers.Embedding(input_dim=input_dim, output_dim=config['model']['embedding_dim'])(inputs[col.name])
         deep_inputs.append(layers.Flatten()(embed))
 
     for col in feature_columns['dense_features']:
         deep_inputs.append(tf.expand_dims(inputs[col.name], -1))
 
     deep_concat = layers.Concatenate()(deep_inputs)
-    deep_output = layers.Dense(config['model']['deep_layer1'])(deep_concat)
-    deep_output = layers.ReLU()(deep_output)
-    deep_output = layers.Dense(config['model']['deep_layer2'])(deep_output)
-    deep_output = layers.ReLU()(deep_output)
+
+    x = deep_concat
+    for units in config['hidden_units']:
+        x = layers.Dense(units)(x)
+        x = layers.ReLU()(x)
+        x = layers.Dropout(config['dropout_rate'])(x)  # 可以加dropout防止过拟合
+    deep_output = x
 
     # Final concat
     final_concat = layers.Concatenate()([wide_output, deep_output])

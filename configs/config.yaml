@@ -1,12 +1,9 @@
-data:
-  label_column: "label"
-
-train:
-  batch_size: 256
-  epochs: 10
-  learning_rate: 0.001
-
+train_data_path: 'path/to/train.csv'
+valid_data_path: 'path/to/valid.csv'
+test_data_path: 'path/to/test.csv'
+batch_size: 256
+epochs: 10
+hidden_units: [128, 64, 32]
+dropout_rate: 0.5
 model:
   embedding_dim: 8
-  deep_layer1: 128
-  deep_layer2: 64
