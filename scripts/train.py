@@ -14,13 +14,14 @@ with open('configs/config.yaml', 'r') as f:
     config = yaml.safe_load(f)
 
 
-train_data_path = config['train_data_path']
-valid_data_path = config['valid_data_path']
-test_data_path = config['test_data_path']
-batch_size = config['batch_size']
-epochs = config['epochs']
-hidden_units = config['hidden_units']
-dropout_rate = config['dropout_rate']
+train_data_path = config['data']['train_data_path']
+valid_data_path = config['data']['valid_data_path']
+test_data_path = config['data']['test_data_path']
+batch_size = config['train']['batch_size']
+epochs = config['train']['epochs']
+
+hidden_units = config['model']['hidden_units']
+dropout_rate = config['model']['dropout_rate']
 
 # 2. 构建特征列
 linear_feature_columns, dnn_feature_columns = build_feature_columns()
@@ -58,5 +59,6 @@ print(f"Test results - Loss: {results[0]}, AUC: {results[1]}, Precision: {result
 # 8. 保存模型
 save_dir = "saved_model"
 os.makedirs(save_dir, exist_ok=True)
-model.save(os.path.join(save_dir, 'wide_deep_model'))
-print(f"Model saved to {save_dir}/wide_deep_model")
+model.save(os.path.join(save_dir, 'wide_deep_model.keras'))
+print(f"Model saved to {save_dir}/wide_deep_model.keras")
+

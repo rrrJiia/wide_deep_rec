@@ -1,4 +1,38 @@
+# Python cache
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Jupyter Notebook checkpoints (如果你有notebook的话)
+.ipynb_checkpoints/
+
+# Model checkpoints and logs
 checkpoints/
 logs/
-*.pyc
+saved_model/
+
+# TensorBoard logs
+events.out.tfevents.*
+
+# Dataset temp files
+*.csv~
+*.tmp
+*.temp
+
+# IDE/editor files
+.vscode/
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Configs if generated dynamically
+*.yaml~
+*.json~

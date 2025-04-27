@@ -1,37 +1,73 @@
+# scripts/model.py
+
 import tensorflow as tf
-from tensorflow import keras
-from tensorflow.keras import layers
 
-def build_wide_deep_model(feature_columns, config):
-    # Build the inputs
-    inputs = {col.name: keras.Input(name=col.name, shape=(), dtype=tf.float32) for col in feature_columns['dense_features']}
-    inputs.update({col.name: keras.Input(name=col.name, shape=(), dtype=tf.string) for col in feature_columns['categorical_features']})
+class WideDeepModel(tf.keras.Model):
+    def __init__(self, linear_feature_columns, dnn_feature_columns, hidden_units=[128, 64, 32], dropout_rate=0.5):
+        super(WideDeepModel, self).__init__()
 
-    # Wide part
-    wide_output = layers.Dense(1)(feature_columns['categorical_feature_layer'](inputs))
+        self.linear_feature_columns = linear_feature_columns
+        self.dnn_feature_columns = dnn_feature_columns
+        self.hidden_units = hidden_units
+        self.dropout_rate = dropout_rate
 
-    # Deep part
-    deep_inputs = []
-    for col in feature_columns['categorical_features']:
-        input_dim = len(col.vocabulary_list) + 1
-        embed = layers.Embedding(input_dim=input_dim, output_dim=config['model']['embedding_dim'])(inputs[col.name])
-        deep_inputs.append(layers.Flatten()(embed))
+        # --- Wide部分 ---
+        # Dense特征直接连接线性层
+        self.linear_dense = tf.keras.layers.Dense(1)
 
-    for col in feature_columns['dense_features']:
-        deep_inputs.append(tf.expand_dims(inputs[col.name], -1))
+        # --- Deep部分 ---
+        # 先加 StringLookup，把字符串类别 -> 整数 id
+        self.lookup_layers = {}
+        for feature in self.dnn_feature_columns:
+            self.lookup_layers[feature['name']] = tf.keras.layers.StringLookup(
+                vocabulary=feature['vocab_list'],
+                output_mode='int',
+                num_oov_indices=0  # 不允许OOV，避免漏掉类别导致崩溃
+            )
 
-    deep_concat = layers.Concatenate()(deep_inputs)
+        # 然后 Embedding：id -> embedding向量
+        self.embedding_layers = {}
+        for feature in self.dnn_feature_columns:
+            self.embedding_layers[feature['name']] = tf.keras.layers.Embedding(
+                input_dim=feature['vocab_size'],  # vocab_size必须对得上
+                output_dim=feature['embedding_dim']
+            )
 
-    x = deep_concat
-    for units in config['hidden_units']:
-        x = layers.Dense(units)(x)
-        x = layers.ReLU()(x)
-        x = layers.Dropout(config['dropout_rate'])(x)  # 可以加dropout防止过拟合
-    deep_output = x
+        # 多层 DNN
+        self.deep_dense_layers = []
+        for units in self.hidden_units:
+            self.deep_dense_layers.append(tf.keras.layers.Dense(units, activation='relu'))
+            self.deep_dense_layers.append(tf.keras.layers.Dropout(self.dropout_rate))
 
-    # Final concat
-    final_concat = layers.Concatenate()([wide_output, deep_output])
-    output = layers.Dense(1, activation='sigmoid')(final_concat)
+        # 输出层
+        self.output_layer = tf.keras.layers.Dense(1, activation='sigmoid')
 
-    model = keras.Model(inputs=inputs, outputs=output)
-    return model
+    def call(self, inputs, training=False):
+        # --- Wide部分 ---
+        wide_inputs = tf.concat([
+            tf.expand_dims(tf.cast(inputs[feature], tf.float32), axis=-1)
+            for feature in self.linear_feature_columns
+        ], axis=1)
+
+        wide_out = self.linear_dense(wide_inputs)
+
+        # --- Deep部分 ---
+        embeddings = []
+        for feature in self.dnn_feature_columns:
+            raw_input = inputs[feature['name']]  # 原生string输入
+            int_input = self.lookup_layers[feature['name']](raw_input)  # string -> int
+            embed = self.embedding_layers[feature['name']](int_input)   # int -> embedding
+            embeddings.append(embed)
+
+        deep_inputs = tf.concat(embeddings, axis=-1)
+
+        x = deep_inputs
+        for layer in self.deep_dense_layers:
+            x = layer(x, training=training)
+
+        # --- 最后 Wide 和 Deep 合并 ---
+        combined = tf.concat([wide_out, x], axis=-1)
+
+        output = self.output_layer(combined)
+
+        return output

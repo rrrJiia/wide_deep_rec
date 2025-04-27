@@ -1,9 +1,13 @@
-train_data_path: 'path/to/train.csv'
-valid_data_path: 'path/to/valid.csv'
-test_data_path: 'path/to/test.csv'
-batch_size: 256
-epochs: 10
-hidden_units: [128, 64, 32]
-dropout_rate: 0.5
+train:
+  batch_size: 256
+  epochs: 10
+
 model:
-  embedding_dim: 8
+  hidden_units: [128, 64, 32]
+  dropout_rate: 0.5
+
+data:
+  train_data_path: 'data/train.csv'
+  valid_data_path: 'data/valid.csv'
+  test_data_path: 'data/test.csv'
+  label_column: label
