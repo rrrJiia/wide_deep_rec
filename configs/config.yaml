@@ -1,0 +1,12 @@
+data:
+  label_column: "label"
+
+train:
+  batch_size: 256
+  epochs: 10
+  learning_rate: 0.001
+
+model:
+  embedding_dim: 8
+  deep_layer1: 128
+  deep_layer2: 64
