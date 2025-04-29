@@ -29,6 +29,14 @@ def process_movielens_data(ratings_path, movies_path, output_dir='data', random_
     # Merge on movieId to attach genres to each rating
     data = pd.merge(ratings, movies, on='movieId')
     data['label'] = (data['rating'] >= 3.0).astype(int)
+
+    positive_samples = data[data['label'] == 1]
+    negative_samples = data[data['label'] == 0]
+    
+    # Option 1: Heavily imbalanced dataset (90% positive)
+    pos_sample = positive_samples.sample(n=min(len(positive_samples), int(len(data)*0.9)), random_state=random_state)
+    neg_sample = negative_samples.sample(n=min(len(negative_samples), int(len(data)*0.1)), random_state=random_state)
+    data = pd.concat([pos_sample, neg_sample])
     
     # Get all unique genres
     all_genres = set()

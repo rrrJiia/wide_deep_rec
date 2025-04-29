@@ -1,3 +1,7 @@
+"""
+Training script for the Wide & Deep recommendation model.
+Enhanced version with support for experimental configurations.
+"""
 import os
 import yaml
 import pandas as pd
@@ -8,27 +12,65 @@ import seaborn as sns
 from scripts.model import build_wide_deep_model
 from scripts.data_processor import load_data, preprocess_data, prepare_model_inputs
 
-def train_and_visualize():
+def train_and_visualize(config_path=None, output_dir=None):
     """Train the model and visualize results."""
     # 1. Load configuration
-    if not os.path.exists('configs/config.yaml'):
-        raise FileNotFoundError("Configuration file configs/config.yaml not found!")
+    if config_path is None:
+        config_path = 'configs/config.yaml'
+    
+    if not os.path.exists(config_path):
+        raise FileNotFoundError(f"Configuration file {config_path} not found!")
 
-    with open('configs/config.yaml', 'r') as f:
+    with open(config_path, 'r') as f:
         config = yaml.safe_load(f)
-
+    
     # 2. Get configuration parameters
     train_data_path = config['data']['train_data_path']
     valid_data_path = config['data']['valid_data_path']
     test_data_path = config['data']['test_data_path']
-    batch_size = config['train']['batch_size']
-    epochs = config['train']['epochs']
-    hidden_units = config['model']['hidden_units']
-    dropout_rate = config['model']['dropout_rate']
-    label_column = config['data']['label_column']
-
+    
+    # Set up experiment parameters with defaults
+    batch_size = config.get('train', {}).get('batch_size', 256)
+    epochs = config.get('train', {}).get('epochs', 10)
+    learning_rate = config.get('train', {}).get('learning_rate', 0.001)
+    optimizer_type = config.get('train', {}).get('optimizer', 'adam')
+    early_stopping = config.get('train', {}).get('early_stopping', True)
+    patience = config.get('train', {}).get('patience', 3)
+    momentum = config.get('train', {}).get('momentum', 0.9)  # For SGD
+    
+    hidden_units = config.get('model', {}).get('hidden_units', [128, 64, 32])
+    dropout_rate = config.get('model', {}).get('dropout_rate', 0.5)
+    embedding_dim = config.get('model', {}).get('embedding_dim', 8)
+    architecture = config.get('model', {}).get('architecture', 'wide_deep')
+    activation = config.get('model', {}).get('activation', 'relu')
+    
+    label_column = config.get('data', {}).get('label_column', 'label')
+    genre_filter = config.get('data', {}).get('genre_filter', None)
+    
+    # Set output directory
+    if output_dir is None:
+        output_dir = os.environ.get('EXPERIMENT_DIR', 'logs')
+    
+    # Create all subdirectories
+    os.makedirs(output_dir, exist_ok=True)
+    checkpoint_dir = os.path.join(output_dir, 'checkpoints')
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    model_dir = os.path.join(output_dir, 'saved_model')
+    os.makedirs(model_dir, exist_ok=True)
+    
+    # Print experiment configuration
+    print(f"\nExperiment configuration:")
+    print(f"  - Learning rate: {learning_rate}")
+    print(f"  - Batch size: {batch_size}")
+    print(f"  - Epochs: {epochs}")
+    print(f"  - Hidden units: {hidden_units}")
+    print(f"  - Dropout rate: {dropout_rate}")
+    print(f"  - Architecture: {architecture}")
+    print(f"  - Optimizer: {optimizer_type}")
+    print(f"  - Early stopping: {early_stopping}")
+    
     # 3. Load and preprocess datasets
-    print("Loading and preprocessing datasets...")
+    print("\nLoading and preprocessing datasets...")
     
     # Load and preprocess train data
     train_df = load_data(train_data_path)
@@ -42,6 +84,13 @@ def train_and_visualize():
     test_df = load_data(test_data_path)
     test_df = preprocess_data(test_df, label_column)
     
+    # Apply genre filter if specified
+    if genre_filter:
+        print(f"Applying genre filter: {genre_filter}")
+        train_df = train_df[train_df[genre_filter] == 1]
+        valid_df = valid_df[valid_df[genre_filter] == 1]
+        test_df = test_df[test_df[genre_filter] == 1]
+    
     print(f"Train dataset: {train_df.shape}")
     print(f"Validation dataset: {valid_df.shape}")
     print(f"Test dataset: {test_df.shape}")
@@ -53,13 +102,33 @@ def train_and_visualize():
     
     # 4. Create model
     print("Building Wide & Deep model...")
-    model = build_wide_deep_model(hidden_units=hidden_units, dropout_rate=dropout_rate)
+    model = build_wide_deep_model(
+        hidden_units=hidden_units,
+        dropout_rate=dropout_rate,
+        embedding_dim=embedding_dim,
+        architecture=architecture,
+        activation=activation
+    )
     model.summary()
     
     # 5. Compile model
     print("Compiling model...")
+    
+    # Select optimizer based on configuration
+    if optimizer_type.lower() == 'adam':
+        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    elif optimizer_type.lower() == 'sgd':
+        optimizer = tf.keras.optimizers.SGD(learning_rate=learning_rate, momentum=momentum)
+    elif optimizer_type.lower() == 'rmsprop':
+        optimizer = tf.keras.optimizers.RMSprop(learning_rate=learning_rate)
+    elif optimizer_type.lower() == 'adagrad':
+        optimizer = tf.keras.optimizers.Adagrad(learning_rate=learning_rate)
+    else:
+        print(f"Warning: Unknown optimizer '{optimizer_type}', using Adam instead.")
+        optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
+    
     model.compile(
-        optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
+        optimizer=optimizer,
         loss=tf.keras.losses.BinaryCrossentropy(),
         metrics=[
             tf.keras.metrics.AUC(name='auc'), 
@@ -68,33 +137,37 @@ def train_and_visualize():
         ]
     )
 
-    # 6. Create callbacks for model checkpoints and early stopping
-    checkpoint_dir = "checkpoints"
-    log_dir = "logs"
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    os.makedirs(log_dir, exist_ok=True)
-    
+    # 6. Create callbacks
     callbacks = [
+        tf.keras.callbacks.TensorBoard(
+            log_dir=output_dir,
+            histogram_freq=1
+        )
+    ]
+    
+    # Add early stopping if enabled
+    if early_stopping:
+        callbacks.append(
+            tf.keras.callbacks.EarlyStopping(
+                monitor='val_auc',
+                patience=patience,
+                mode='max',
+                restore_best_weights=True
+            )
+        )
+    
+    # Add model checkpoint
+    callbacks.append(
         tf.keras.callbacks.ModelCheckpoint(
             filepath=os.path.join(checkpoint_dir, 'model-{epoch:02d}-{val_auc:.4f}.keras'),
             monitor='val_auc',
             save_best_only=True,
             mode='max'
-        ),
-        tf.keras.callbacks.EarlyStopping(
-            monitor='val_auc',
-            patience=3,
-            mode='max',
-            restore_best_weights=True
-        ),
-        tf.keras.callbacks.TensorBoard(
-            log_dir=log_dir,
-            histogram_freq=1
         )
-    ]
+    )
     
     # 7. Train model
-    print(f"Training model for {epochs} epochs (with early stopping)...")
+    print(f"Training model for {epochs} epochs...")
     history = model.fit(
         train_inputs,
         train_labels,
@@ -112,30 +185,28 @@ def train_and_visualize():
           f"Precision: {results[2]:.4f}, Recall: {results[3]:.4f}")
 
     # 9. Save the model
-    save_dir = "saved_model"
-    os.makedirs(save_dir, exist_ok=True)
-    model.save(os.path.join(save_dir, 'wide_deep_model.keras'))
-    print(f"Model saved to {save_dir}/wide_deep_model.keras")
+    model.save(os.path.join(model_dir, 'wide_deep_model.keras'))
+    print(f"Model saved to {model_dir}/wide_deep_model.keras")
     
     # 10. Visualize results
     print("\nGenerating visualizations...")
     
     # Plot training history
-    plot_training_history(history, output_dir=log_dir)
+    plot_training_history(history, output_dir=output_dir)
     
     # Visualize feature correlation importance
-    visualize_feature_correlation_importance(train_df, label_column, output_dir=log_dir)
+    visualize_feature_correlation_importance(train_df, label_column, output_dir=output_dir)
     
     # Generate predictions on test set for visualization
     test_pred = model.predict(test_inputs)
     
     # Plot confusion matrix
-    plot_confusion_matrix(test_labels, test_pred, log_dir)
+    plot_confusion_matrix(test_labels, test_pred, output_dir)
     
     # Plot ROC curve
-    plot_roc_curve(test_labels, test_pred, log_dir)
+    plot_roc_curve(test_labels, test_pred, output_dir)
     
-    print(f"All visualizations saved to {log_dir}/")
+    print(f"All visualizations saved to {output_dir}/")
     
     return history, results, model
 
@@ -158,7 +229,7 @@ def plot_training_history(history, output_dir='logs'):
         plt.grid(True)
     
     plt.tight_layout()
-    plt.savefig(os.path.join(output_dir, 'training_metrics.png'))
+    plt.savefig(os.path.join(output_dir, 'training_metrics.png'), dpi=300)
     plt.close()
 
 def visualize_feature_correlation_importance(df, label_column, output_dir='logs'):
@@ -217,7 +288,7 @@ def plot_confusion_matrix(y_true, y_pred, output_dir='logs'):
     plt.tight_layout()
     
     os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(os.path.join(output_dir, 'confusion_matrix.png'))
+    plt.savefig(os.path.join(output_dir, 'confusion_matrix.png'), dpi=300)
     plt.close()
 
 def plot_roc_curve(y_true, y_pred, output_dir='logs'):
@@ -241,8 +312,18 @@ def plot_roc_curve(y_true, y_pred, output_dir='logs'):
     plt.grid(True)
     
     os.makedirs(output_dir, exist_ok=True)
-    plt.savefig(os.path.join(output_dir, 'roc_curve.png'))
+    plt.savefig(os.path.join(output_dir, 'roc_curve.png'), dpi=300)
     plt.close()
 
 if __name__ == "__main__":
-    train_and_visualize()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description='Train Wide & Deep model')
+    parser.add_argument('--config', type=str, default='configs/config.yaml',
+                      help='Path to configuration file')
+    parser.add_argument('--output-dir', type=str, default=None,
+                      help='Directory for output files')
+    
+    args = parser.parse_args()
+    
+    train_and_visualize(config_path=args.config, output_dir=args.output_dir)

@@ -1,11 +1,19 @@
+"""
+Model definition for the Wide & Deep recommendation model.
+Enhanced version with experimental options.
+"""
 import tensorflow as tf
 
-def build_wide_deep_model(hidden_units=None, dropout_rate=0.5):
+def build_wide_deep_model(hidden_units=None, dropout_rate=0.5, embedding_dim=8, 
+                         architecture='wide_deep', activation='relu'):
     """Build a Wide & Deep model for recommendation.
     
     Args:
         hidden_units: List of integers, the layer sizes of the DNN.
         dropout_rate: Float between 0 and 1, dropout rate for DNN layers.
+        embedding_dim: Integer, dimension for embedding layers.
+        architecture: String, model architecture type ('wide_deep', 'wide_only', 'deep_only').
+        activation: String, activation function for hidden layers.
         
     Returns:
         A Keras Model instance.
@@ -37,10 +45,24 @@ def build_wide_deep_model(hidden_units=None, dropout_rate=0.5):
     # Concatenate all genre inputs for wide component
     genre_concat = tf.keras.layers.Concatenate()(genre_input_list)
     
-    # Calculate embedding dimensions
-    # Use much larger sizes to handle all possible IDs
+    # Set user and movie ID ranges
     max_user_id = 200000  # Safely handle all user IDs
     max_movie_id = 200000  # Safely handle all movie IDs
+    
+    # Define activation function
+    if activation == 'relu':
+        activation_fn = 'relu'
+    elif activation == 'leaky_relu':
+        activation_fn = tf.keras.layers.LeakyReLU(alpha=0.2)
+    elif activation == 'elu':
+        activation_fn = 'elu'
+    elif activation == 'tanh':
+        activation_fn = 'tanh'
+    elif activation == 'sigmoid':
+        activation_fn = 'sigmoid'
+    else:
+        print(f"Warning: Unknown activation '{activation}', using ReLU instead.")
+        activation_fn = 'relu'
     
     # Wide Component
     # User ID embedding for wide component (one-hot like)
@@ -63,13 +85,13 @@ def build_wide_deep_model(hidden_units=None, dropout_rate=0.5):
     
     # Combine wide inputs (linear model equivalent)
     wide = tf.keras.layers.Concatenate()([userId_wide, movieId_wide, genre_concat])
-    wide = tf.keras.layers.Dense(1, activation=None, use_bias=True)(wide)
+    wide = tf.keras.layers.Dense(1, activation=None, use_bias=True, name='wide_output')(wide)
     
     # Deep Component
     # User ID embedding for deep component
     userId_deep = tf.keras.layers.Embedding(
         input_dim=max_user_id,
-        output_dim=8,
+        output_dim=embedding_dim,
         embeddings_initializer='uniform',
         trainable=True
     )(userId_input)
@@ -78,7 +100,7 @@ def build_wide_deep_model(hidden_units=None, dropout_rate=0.5):
     # Movie ID embedding for deep component
     movieId_deep = tf.keras.layers.Embedding(
         input_dim=max_movie_id,
-        output_dim=8, 
+        output_dim=embedding_dim,
         embeddings_initializer='uniform',
         trainable=True
     )(movieId_input)
@@ -88,19 +110,38 @@ def build_wide_deep_model(hidden_units=None, dropout_rate=0.5):
     deep = tf.keras.layers.Concatenate()([userId_deep, movieId_deep, genre_concat])
     
     # Add hidden layers for deep component
-    for units in hidden_units:
-        deep = tf.keras.layers.Dense(units, activation='relu')(deep)
-        deep = tf.keras.layers.Dropout(dropout_rate)(deep)
+    for i, units in enumerate(hidden_units):
+        # For string activations, we can pass directly to Dense
+        if isinstance(activation_fn, str):
+            deep = tf.keras.layers.Dense(units, activation=activation_fn, name=f'deep_dense_{i}')(deep)
+        # For layer activations, we need to apply them after the Dense layer
+        else:
+            deep = tf.keras.layers.Dense(units, activation=None, name=f'deep_dense_{i}')(deep)
+            deep = activation_fn(deep)
+        
+        deep = tf.keras.layers.Dropout(dropout_rate, name=f'deep_dropout_{i}')(deep)
     
-    # Ensure deep component outputs shape (None, 1) to match wide component
-    deep = tf.keras.layers.Dense(1, activation=None)(deep)
+    # Final dense layer for deep component
+    deep = tf.keras.layers.Dense(1, activation=None, name='deep_output')(deep)
     
-    # Combine wide and deep components
-    combined = tf.keras.layers.Add()([wide, deep])
-    output = tf.keras.layers.Activation('sigmoid')(combined)
+    # Build model based on architecture type
+    if architecture == 'wide_only':
+        output = tf.keras.layers.Activation('sigmoid')(wide)
+        all_inputs = [userId_input, movieId_input] + list(genre_inputs.values())
+        model = tf.keras.Model(inputs=all_inputs, outputs=output, name='wide_model')
     
-    # Create model with all inputs
-    all_inputs = [userId_input, movieId_input] + list(genre_inputs.values())
-    model = tf.keras.Model(inputs=all_inputs, outputs=output)
+    elif architecture == 'deep_only':
+        output = tf.keras.layers.Activation('sigmoid')(deep)
+        all_inputs = [userId_input, movieId_input] + list(genre_inputs.values())
+        model = tf.keras.Model(inputs=all_inputs, outputs=output, name='deep_model')
+    
+    else:  # wide_deep (default)
+        # Combine wide and deep components
+        combined = tf.keras.layers.Add()([wide, deep])
+        output = tf.keras.layers.Activation('sigmoid')(combined)
+        
+        # Create model with all inputs
+        all_inputs = [userId_input, movieId_input] + list(genre_inputs.values())
+        model = tf.keras.Model(inputs=all_inputs, outputs=output, name='wide_deep_model')
     
     return model

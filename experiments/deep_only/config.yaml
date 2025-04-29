@@ -1,5 +1,4 @@
 data:
-  genre_filter: genre_Comedy
   label_column: label
   raw_data:
     movies: movie_raw_data/movies.csv
@@ -8,19 +7,17 @@ data:
   train_data_path: data/train.csv
   valid_data_path: data/valid.csv
 experiment:
-  name: no_early_stopping
+  name: deep_only
 model:
   architecture: deep_only
   dropout_rate: 0.0
-  embedding_dim: 64
   hidden_units:
   - 256
   - 256
   - 256
 train:
   batch_size: 1024
-  early_stopping: false
-  epochs: 30
+  epochs: 5
   learning_rate: 0.01
   momentum: 0.9
   optimizer: sgd
