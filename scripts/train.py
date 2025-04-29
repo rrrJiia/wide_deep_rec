@@ -4,7 +4,7 @@ import pandas as pd
 import tensorflow as tf
 from utils.features import build_feature_columns
 from utils.datasets import create_dataset
-from scripts.model import WideDeepModel
+from scripts.model import build_wide_deep_model
 
 # 1. 加载配置
 if not os.path.exists('configs/config.yaml'):
@@ -36,11 +36,11 @@ valid_dataset = create_dataset(valid_data_path, config, training=False)
 test_dataset = create_dataset(test_data_path, config, training=False)
 
 # 4. 创建模型
-model = WideDeepModel(linear_feature_columns, dnn_feature_columns, hidden_units=hidden_units, dropout_rate=dropout_rate)
-
+# model = build_wide_deep_model(linear_feature_columns, dnn_feature_columns, hidden_units=hidden_units, dropout_rate=dropout_rate)
+model = build_wide_deep_model()
 # 5. Compile
 model.compile(
-    optimizer=tf.keras.optimizers.Adam(),
+    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
     loss=tf.keras.losses.BinaryCrossentropy(),
     metrics=[tf.keras.metrics.AUC(), tf.keras.metrics.Precision(), tf.keras.metrics.Recall()]
 )
@@ -49,7 +49,8 @@ model.compile(
 model.fit(
     train_dataset,
     validation_data=valid_dataset,
-    epochs=epochs
+    epochs=epochs,
+    verbose=2
 )
 
 # 7. 测试集上评估

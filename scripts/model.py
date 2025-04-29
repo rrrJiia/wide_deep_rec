@@ -1,73 +1,53 @@
 # scripts/model.py
 
 import tensorflow as tf
+from utils.features import build_feature_columns
 
-class WideDeepModel(tf.keras.Model):
-    def __init__(self, linear_feature_columns, dnn_feature_columns, hidden_units=[128, 64, 32], dropout_rate=0.5):
-        super(WideDeepModel, self).__init__()
+def build_wide_deep_model():
+    wide_cols, deep_cols = build_feature_columns()
+    
+    feature_inputs = {}
+    feature_inputs['userId'] = tf.keras.Input(shape=(), name='userId', dtype=tf.int32)
+    feature_inputs['movieId'] = tf.keras.Input(shape=(), name='movieId', dtype=tf.int32)
+    for genre_col in [col for col in deep_cols if col.__class__.__name__ == 'NumericColumn']:
+        feature_inputs[genre_col.key] = tf.keras.Input(shape=(), name=genre_col.key, dtype=tf.float32)
 
-        self.linear_feature_columns = linear_feature_columns
-        self.dnn_feature_columns = dnn_feature_columns
-        self.hidden_units = hidden_units
-        self.dropout_rate = dropout_rate
+    # Process Wide Inputs
+    # Process Wide Inputs
+    wide_inputs = []
+    for col in wide_cols:
+        if hasattr(col, 'categorical_column'):
+            input_tensor = tf.keras.layers.Lambda(
+                lambda x: tf.one_hot(x, depth=col.categorical_column.num_buckets)
+            )(feature_inputs[col.categorical_column.key])
+            wide_inputs.append(input_tensor)
+        elif hasattr(col, 'key'):
+            wide_inputs.append(tf.expand_dims(feature_inputs[col.key], -1))
+    wide_feat_layer = tf.keras.layers.Concatenate()(wide_inputs)
 
-        # --- Wide部分 ---
-        # Dense特征直接连接线性层
-        self.linear_dense = tf.keras.layers.Dense(1)
 
-        # --- Deep部分 ---
-        # 先加 StringLookup，把字符串类别 -> 整数 id
-        self.lookup_layers = {}
-        for feature in self.dnn_feature_columns:
-            self.lookup_layers[feature['name']] = tf.keras.layers.StringLookup(
-                vocabulary=feature['vocab_list'],
-                output_mode='int',
-                num_oov_indices=0  # 不允许OOV，避免漏掉类别导致崩溃
-            )
+    # Process Deep Inputs
+    deep_inputs = []
+    for col in deep_cols:
+        if hasattr(col, 'categorical_column'):
+            input_tensor = tf.keras.layers.Embedding(
+                input_dim=col.categorical_column.num_buckets,
+                output_dim=8)(feature_inputs[col.categorical_column.key])
+            deep_inputs.append(input_tensor)
+        elif hasattr(col, 'key'):
+            deep_inputs.append(tf.expand_dims(feature_inputs[col.key], -1))
+    deep_feat_layer = tf.concat(deep_inputs, axis=-1)
 
-        # 然后 Embedding：id -> embedding向量
-        self.embedding_layers = {}
-        for feature in self.dnn_feature_columns:
-            self.embedding_layers[feature['name']] = tf.keras.layers.Embedding(
-                input_dim=feature['vocab_size'],  # vocab_size必须对得上
-                output_dim=feature['embedding_dim']
-            )
+    # Deep MLP
+    x = deep_feat_layer
+    for units in [128, 64, 32]:
+        x = tf.keras.layers.Dense(units, activation='relu')(x)
+        x = tf.keras.layers.Dropout(0.5)(x)
 
-        # 多层 DNN
-        self.deep_dense_layers = []
-        for units in self.hidden_units:
-            self.deep_dense_layers.append(tf.keras.layers.Dense(units, activation='relu'))
-            self.deep_dense_layers.append(tf.keras.layers.Dropout(self.dropout_rate))
+    # Combine Wide and Deep
+    combined_input = tf.keras.layers.concatenate([wide_feat_layer, x])
+    output = tf.keras.layers.Dense(1, activation='sigmoid')(combined_input)
 
-        # 输出层
-        self.output_layer = tf.keras.layers.Dense(1, activation='sigmoid')
+    model = tf.keras.Model(inputs=feature_inputs, outputs=output)
+    return model
 
-    def call(self, inputs, training=False):
-        # --- Wide部分 ---
-        wide_inputs = tf.concat([
-            tf.expand_dims(tf.cast(inputs[feature], tf.float32), axis=-1)
-            for feature in self.linear_feature_columns
-        ], axis=1)
-
-        wide_out = self.linear_dense(wide_inputs)
-
-        # --- Deep部分 ---
-        embeddings = []
-        for feature in self.dnn_feature_columns:
-            raw_input = inputs[feature['name']]  # 原生string输入
-            int_input = self.lookup_layers[feature['name']](raw_input)  # string -> int
-            embed = self.embedding_layers[feature['name']](int_input)   # int -> embedding
-            embeddings.append(embed)
-
-        deep_inputs = tf.concat(embeddings, axis=-1)
-
-        x = deep_inputs
-        for layer in self.deep_dense_layers:
-            x = layer(x, training=training)
-
-        # --- 最后 Wide 和 Deep 合并 ---
-        combined = tf.concat([wide_out, x], axis=-1)
-
-        output = self.output_layer(combined)
-
-        return output
