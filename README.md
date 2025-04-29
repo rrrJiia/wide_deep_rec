@@ -112,22 +112,23 @@ Option 1: Run a single experiment
 ```bash
 python run_experiments.py --experiment baseline
 ```
-Available experiments include:
-baseline
-deep_network
-high_dropout
-small_batch
-large_batch
-no_dropout
-sgd_optimizer
-wide_only
-deep_only
-comedy_only
-high_learning_rate
-low_learning_rate
-no_early_stopping
-large_embeddings
-minimal_epochs
+
+#### Available experiments include:
+- baseline
+- deep_network
+- high_dropout
+- small_batch
+- large_batch
+- no_dropout
+- sgd_optimizer
+- wide_only
+- deep_only
+- comedy_only
+- high_learning_rate
+- low_learning_rate
+- no_early_stopping
+- large_embeddings
+- minimal_epochs
 ---
 Option 2: Run all experiments
 ```bash
@@ -149,8 +150,6 @@ python run_experiments.py --compare
 | Test Recall | ~1.000 |
 
 ---
-
-## Experiment Performance:
 
 ## Experiment Results
 
