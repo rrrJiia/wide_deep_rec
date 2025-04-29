@@ -21,6 +21,7 @@ for genre in all_genres:
 data = data.drop(columns=['rating', 'timestamp', 'title', 'genres'])
 
 
+
 train, temp = train_test_split(data, test_size=0.2, random_state=42)
 valid, test = train_test_split(temp, test_size=0.5, random_state=42)
 print(len(train), len(valid), len(test))

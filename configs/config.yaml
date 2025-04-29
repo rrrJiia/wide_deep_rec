@@ -11,3 +11,6 @@ data:
   valid_data_path: 'data/valid.csv'
   test_data_path: 'data/test.csv'
   label_column: label
+  raw_data:
+    ratings: 'movie_raw_data/ratings.csv'
+    movies: 'movie_raw_data/movies.csv'

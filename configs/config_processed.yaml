@@ -1,0 +1,17 @@
+data:
+  label_column: label
+  raw_data:
+    movies: movie_raw_data/movies.csv
+    ratings: movie_raw_data/ratings.csv
+  test_data_path: data/test.csv
+  train_data_path: data/train.csv
+  valid_data_path: data/valid.csv
+model:
+  dropout_rate: 0.5
+  hidden_units:
+  - 128
+  - 64
+  - 32
+train:
+  batch_size: 256
+  epochs: 10
